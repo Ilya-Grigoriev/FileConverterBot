@@ -7,7 +7,8 @@ import os
 
 
 def start_keyboard():
-    reply_keyboard = [['Перевод из Excel в CSV', 'Перевод из CSV в Excel']]
+    reply_keyboard = [['Excel->CSV', 'CSV->Excel'],
+                      ['PDF->WORD', 'WORD->PDF']]
     markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=False)
     return markup
 
@@ -19,6 +20,12 @@ def find_delimiter(path):
     return delimiter
 
 
+def get_file_info(update):
+    format_file = update.message['document']['file_name'].split('.')[1]
+    initial_name = update.message['document']['file_name'].split('.')[0]
+    return format_file, initial_name
+
+
 def start(update, context):
     update.message.reply_text(f'Здравствуйте, {update.message["chat"]["first_name"]}! Я умею конвертировать документы.')
     update.message.reply_text('Вот мои возможности:', reply_markup=start_keyboard())
@@ -26,12 +33,18 @@ def start(update, context):
 
 def response(update, context):
     text = update.message.text
-    if text == 'Перевод из Excel в CSV':
+    if text == 'Excel->CSV':
         update.message.reply_text('Отправьте файл для преобразования:', reply_markup=ReplyKeyboardRemove())
         return 'EXCEL_TO_CSV'
-    elif text == 'Перевод из CSV в Excel':
+    elif text == 'CSV->Excel':
         update.message.reply_text('Отправьте файл для преобразования:', reply_markup=ReplyKeyboardRemove())
         return 'CSV_TO_EXCEL'
+    elif text == 'PDF->WORD':
+        update.message.reply_text('Отправьте файл для преобразования:', reply_markup=ReplyKeyboardRemove())
+        return 'PDF_TO_WORD'
+    elif text == 'WORD->PDF':
+        update.message.reply_text('Отправьте файл для преобразования:', reply_markup=ReplyKeyboardRemove())
+        return 'WORD_TO_PDF'
 
 
 def excel_to_csv(update, context):
@@ -83,6 +96,16 @@ def csv_to_excel(update, context):
     os.remove(result_csv_file)
 
 
+def pdf_to_word(update, context):
+    chat_id = update.message['chat']['id']
+    format_file = update.message['document']['file_name'].split('.')[1]
+    initial_name = update.message['document']['file_name'].split('.')[0]
+    result_pdf_file = f'data/{chat_id}.csv'
+    with open(result_pdf_file, 'wb') as file:
+        context.bot.get_file(update.message['document']['file_id']).download(out=file)
+        file.close()
+
+
 def stop(update, context):
     update.message.reply_text('Программа завершена', reply_markup=start_keyboard())
     return ConversationHandler.END
@@ -97,7 +120,9 @@ def main():
         entry_points=[MessageHandler(Filters.text & (~ Filters.command), response)],
         states={
             'EXCEL_TO_CSV': [MessageHandler(Filters.document, excel_to_csv, pass_update_queue=True)],
-            'CSV_TO_EXCEL': [MessageHandler(Filters.document, csv_to_excel, pass_user_data=True)]
+            'CSV_TO_EXCEL': [MessageHandler(Filters.document, csv_to_excel, pass_user_data=True)],
+            'PDF_TO_WORD': [MessageHandler(Filters.document, pdf_to_word, pass_user_data=True)],
+            'WORD_TO_PDF': [MessageHandler(Filters.document, word_to_pdf, pass_user_data=True)]
         },
         fallbacks=[CommandHandler('stop', stop)]
     )
