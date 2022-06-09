@@ -1,10 +1,9 @@
 from telegram.ext import MessageHandler, Updater, Filters, CommandHandler, ConversationHandler
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
 from pywintypes import com_error
-import fitz
-import xlrd
 import pythoncom
-from openpyxl import Workbook
+import traceback
+import openpyxl
 from pdf2docx import Converter
 from docx2pdf import convert
 import csv
@@ -53,56 +52,88 @@ def response(update, context):
 
 
 def excel_to_csv(update, context):
-    chat_id = update.message['chat']['id']
-    format_file, initial_name = get_file_info(update)
-    result_excel_file = f'data/{chat_id}.{format_file}'
-    with open(result_excel_file, 'wb') as file:
-        context.bot.get_file(update.message['document']['file_id']).download(out=file)
-        file.close()
-    result_csv_file = f'data/{chat_id}.csv'
-    with open(result_csv_file, mode='w', newline='') as csvfile:
-        writer = csv.writer(csvfile, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        book = xlrd.open_workbook(result_excel_file)
-        for sheet_number in range(book.nsheets):
-            sh = book.sheet_by_index(sheet_number)
-            for rx in range(sh.nrows):
-                writer.writerow(sh.row_values(rx))
-        csvfile.close()
-    result_file = f'{initial_name}.csv'
-    update.message.reply_text('Конвертация завершена', reply_markup=start_keyboard())
-    context.bot.send_document(chat_id=chat_id, document=open(result_csv_file, mode='rb'), filename=result_file)
-    os.remove(result_excel_file)
-    os.remove(result_csv_file)
-    return ConversationHandler.END
+    result_csv_file = ''
+    result_excel_file = ''
+    try:
+        expan = update.message['document']['file_name'].split('.')[1]
+        if expan not in ['xlsx', 'xlsm', 'xltx', 'xltm']:
+            update.message.reply_text('Неверный формат для конвертации', reply_markup=start_keyboard())
+            return ConversationHandler.END
+        chat_id = update.message['chat']['id']
+        format_file, initial_name = get_file_info(update)
+        result_excel_file = f'data/{chat_id}.{format_file}'
+        with open(result_excel_file, 'wb') as file:
+            context.bot.get_file(update.message['document']['file_id']).download(out=file)
+            file.close()
+        result_csv_file = f'data/{chat_id}.csv'
+        wb = openpyxl.load_workbook(result_excel_file)
+        sheet = wb.active
+        with open(result_csv_file, mode='w', newline='', encoding='utf8') as csvfile:
+            writer = csv.writer(csvfile, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            for row in sheet.rows:
+                writer.writerow([col.value for col in row])
+            csvfile.close()
+            wb.close()
+        result_file = f'{initial_name}.csv'
+        update.message.reply_text('Конвертация завершена', reply_markup=start_keyboard())
+        context.bot.send_document(chat_id=chat_id, document=open(result_csv_file, mode='rb'), filename=result_file)
+    except Exception:
+        print(traceback.format_exc())
+        update.message.reply_text('Не удалось обработать Ваш запрос. Попробуйте позже', reply_markup=start_keyboard())
+    finally:
+        if os.path.isfile(result_excel_file):
+            os.remove(result_excel_file)
+        if os.path.isfile(result_csv_file):
+            os.remove(result_csv_file)
+        return ConversationHandler.END
 
 
 def csv_to_excel(update, context):
-    chat_id = update.message['chat']['id']
-    format_file, initial_name = get_file_info(update)
-    result_csv_file = f'data/{chat_id}.csv'
-    with open(result_csv_file, 'wb') as file:
-        context.bot.get_file(update.message['document']['file_id']).download(out=file)
-        file.close()
-    delimiter = find_delimiter(result_csv_file)
-    result_excel_file = f'data/{chat_id}.xlsx'
-    with open(result_csv_file, encoding='utf8') as csvfile:
-        reader = csv.reader(csvfile, delimiter=delimiter, quotechar='"')
-        wb = Workbook()
-        ws = wb.active
-        for row in reader:
-            ws.append(row)
-        wb.save(result_excel_file)
-        csvfile.close()
-    result_file = f'{initial_name}.xlsx'
-    update.message.reply_text('Конвертация завершена', reply_markup=start_keyboard())
-    context.bot.send_document(chat_id=chat_id, document=open(result_excel_file, mode='rb'), filename=result_file)
-    os.remove(result_excel_file)
-    os.remove(result_csv_file)
-    return ConversationHandler.END
+    result_csv_file = ''
+    result_excel_file = ''
+    try:
+        expan = update.message['document']['file_name'].split('.')[1]
+        if expan != 'csv':
+            update.message.reply_text('Неверный формат для конвертации', reply_markup=start_keyboard())
+            return ConversationHandler.END
+        chat_id = update.message['chat']['id']
+        format_file, initial_name = get_file_info(update)
+        result_csv_file = f'data/{chat_id}.csv'
+        with open(result_csv_file, 'wb') as file:
+            context.bot.get_file(update.message['document']['file_id']).download(out=file)
+            file.close()
+        delimiter = find_delimiter(result_csv_file)
+        result_excel_file = f'data/{chat_id}.xlsx'
+        with open(result_csv_file, encoding='utf8') as csvfile:
+            reader = csv.reader(csvfile, delimiter=delimiter, quotechar='"')
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            for row in reader:
+                ws.append(row)
+            wb.save(result_excel_file)
+            csvfile.close()
+        result_file = f'{initial_name}.xlsx'
+        update.message.reply_text('Конвертация завершена', reply_markup=start_keyboard())
+        context.bot.send_document(chat_id=chat_id, document=open(result_excel_file, mode='rb'), filename=result_file)
+    except Exception:
+        print(traceback.format_exc())
+        update.message.reply_text('Не удалось обработать Ваш запрос. Попробуйте позже', reply_markup=start_keyboard())
+    finally:
+        if os.path.isfile(result_csv_file):
+            os.remove(result_csv_file)
+        if os.path.isfile(result_excel_file):
+            os.remove(result_excel_file)
+        return ConversationHandler.END
 
 
 def pdf_to_docx(update, context):
+    result_pdf_file = ''
+    result_docx_file = ''
     try:
+        expan = update.message['document']['file_name'].split('.')[1]
+        if expan != 'pdf':
+            update.message.reply_text('Неверный формат для конвертации', reply_markup=start_keyboard())
+            return ConversationHandler.END
         chat_id = update.message['chat']['id']
         format_file, initial_name = get_file_info(update)
         result_pdf_file = f'data/{chat_id}.pdf'
@@ -116,17 +147,25 @@ def pdf_to_docx(update, context):
         cv.close()
         update.message.reply_text('Конвертация завершена', reply_markup=start_keyboard())
         context.bot.send_document(chat_id=chat_id, document=open(result_docx_file, mode='rb'), filename=result_file)
-        os.remove(result_pdf_file)
-        os.remove(result_docx_file)
-    except fitz.fitz.FileDataError:
-        update.message.reply_text('Произошла ошибка: "Файл повреждён"')
     except Exception:
-        update.message.reply_text('Не удалось обработать Ваш запрос. Попробуйте позже')
-    return ConversationHandler.END
+        print(traceback.format_exc())
+        update.message.reply_text('Не удалось обработать Ваш запрос. Попробуйте позже', reply_markup=start_keyboard())
+    finally:
+        if os.path.isfile(result_pdf_file):
+            os.remove(result_pdf_file)
+        if os.path.isfile(result_docx_file):
+            os.remove(result_docx_file)
+        return ConversationHandler.END
 
 
 def docx_to_pdf(update, context):
+    result_pdf_file = ''
+    result_docx_file = ''
     try:
+        expan = update.message['document']['file_name'].split('.')[1]
+        if expan != 'docx':
+            update.message.reply_text('Неверный формат для конвертации', reply_markup=start_keyboard())
+            return ConversationHandler.END
         pythoncom.CoInitialize()
         chat_id = update.message['chat']['id']
         format_file, initial_name = get_file_info(update)
@@ -134,19 +173,24 @@ def docx_to_pdf(update, context):
         with open(result_docx_file, 'wb') as file:
             context.bot.get_file(update.message['document']['file_id']).download(out=file)
             file.close()
+        print(update.message)
         result_pdf_file = f'data/{chat_id}.pdf'
         result_file = f'{initial_name}.pdf'
         convert(result_docx_file)
         update.message.reply_text('Конвертация завершена', reply_markup=start_keyboard())
         context.bot.send_document(chat_id=chat_id, document=open(result_docx_file, mode='rb'), filename=result_file)
-        os.remove(result_pdf_file)
-        os.remove(result_docx_file)
     except com_error as ce:
         error = ce.excepinfo
-        update.message.reply_text(f'Произошла ошибка: "{error[2]}"')
+        update.message.reply_text(f'Произошла ошибка: "{error[2]}"', reply_markup=start_keyboard())
     except Exception:
-        update.message.reply_text('Не удалось обработать Ваш запрос. Попробуйте позже')
-    return ConversationHandler.END
+        print(traceback.format_exc())
+        update.message.reply_text('Не удалось обработать Ваш запрос. Попробуйте позже', reply_markup=start_keyboard())
+    finally:
+        if os.path.isfile(result_docx_file):
+            os.remove(result_docx_file)
+        if os.path.isfile(result_pdf_file):
+            os.remove(result_pdf_file)
+        return ConversationHandler.END
 
 
 def stop(update, context):
@@ -156,6 +200,8 @@ def stop(update, context):
 
 def main():
     token = '677970032:AAEJifhRsPjJG2luEgAvQ7Q9pwX8IG9VQ8I'
+    if os.path.isdir('data') is not True:
+        os.mkdir('data')
     updater = Updater(token)
     dp = updater.dispatcher
     dp.add_handler(CommandHandler('start', start, pass_user_data=True))
